@@ -207,7 +207,7 @@ namespace SSH
         [Parameter(Mandatory = false,
             ValueFromPipelineByPropertyName = true,
             ParameterSetName = "NoKey")]
-        public bool AcceptKey
+        public SwitchParameter AcceptKey
         {
             get { return _acceptkey; }
             set { _acceptkey = value; }
@@ -253,6 +253,20 @@ namespace SSH
         {
             get { return _noProgress; }
             set { _noProgress = value; }
+        }
+
+        // Supress preservation of timestamps
+        private bool _ciscoCompatible = false;
+        [Parameter(Mandatory = false,
+            ValueFromPipelineByPropertyName = true,
+            ParameterSetName = "Key")]
+        [Parameter(Mandatory = false,
+            ValueFromPipelineByPropertyName = true,
+            ParameterSetName = "NoKey")]
+        public SwitchParameter CiscoCompatible
+        {
+            get { return _ciscoCompatible; }
+            set { _ciscoCompatible = value; }
         }
 
         // Variable to hold the host/fingerprint information
@@ -461,17 +475,34 @@ namespace SSH
 
                     if (File.Exists(@localfullPath))
                     {
+                        Stream inputStream = null;
                         try
                         {
-                            WriteVerbose("Uploading " + localfullPath);
                             var fil = new FileInfo(@localfullPath);
                             var remoteFullpath = RemotePath.TrimEnd(new[] { '/' }) + "/" + fil.Name;
-                            client.Upload(fil, remoteFullpath);
+                            WriteVerbose("Uploading " + localfullPath + " to " + remoteFullpath);
+
+                            if (_ciscoCompatible)
+                            {
+                                // We must use a stream to force the SSH.Net library to use the implementation with no quotes
+                                WriteVerbose("  Using Cisco Compatible Mode");
+                                inputStream = fil.OpenRead();
+                                client.Upload(inputStream, remoteFullpath, false);
+                                inputStream.Close();
+                            }
+                            else
+                            {
+                                client.Upload(fil, remoteFullpath);
+                            }
 
                             client.Disconnect();
                         }
                         catch (Exception e)
                         {
+                            if (inputStream != null)
+                            {
+                                inputStream.Close();
+                            }
                             ErrorRecord erec = new ErrorRecord(e, null, ErrorCategory.InvalidOperation, client);
                             WriteError(erec);
                         }

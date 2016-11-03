@@ -251,6 +251,20 @@ namespace SSH
             set { _noProgress = value; }
         }
 
+        // Supress preservation of timestamps
+        private bool _ciscoCompatible = false;
+        [Parameter(Mandatory = false,
+            ValueFromPipelineByPropertyName = true,
+            ParameterSetName = "Key")]
+        [Parameter(Mandatory = false,
+            ValueFromPipelineByPropertyName = true,
+            ParameterSetName = "NoKey")]
+        public SwitchParameter CiscoCompatible
+        {
+            get { return _ciscoCompatible; }
+            set { _ciscoCompatible = value; }
+        }
+
         // Variable to hold the host/fingerprint information
         private Dictionary<string, string> _sshHostKeys;
 
@@ -445,23 +459,40 @@ namespace SSH
                     WriteError(erec);
                 }
 
+                Stream outputStream = null;
+
                 try
                 {
                     if (client.IsConnected)
-                    { 
+                    {
                         var localfullPath = Path.GetFullPath(_localfile);
 
                         WriteVerbose("Downloading " + _remotefile);
                         var fil = new FileInfo(@localfullPath);
 
-                        // Download the file
-                        client.Download(_remotefile, fil);
+                        if (_ciscoCompatible)
+                        {
+                            // We must use a stream to force the SSH.Net library to not add the "-p" option to the scp command
+                            WriteVerbose("  Using Cisco Compatible Mode");
+                            outputStream = fil.OpenWrite();
+                            client.Download(_remotefile, outputStream, false);
+                            outputStream.Close();
+                        }
+                        else
+                        {
+                            // Download the file maintaining the timestamps
+                            client.Download(_remotefile, fil);
+                        }
 
                         client.Disconnect();
                     }
                 }
                 catch (Exception e)
                 {
+                    if (outputStream != null)
+                    {
+                        outputStream.Close();
+                    }
                     ErrorRecord erec = new ErrorRecord(e, null, ErrorCategory.OperationStopped, client);
                     WriteError(erec);
                 }
